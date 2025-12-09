@@ -46,6 +46,11 @@ class TeamResource extends Resource
                             ->required()
                             ->label('Company Owner')
                             ->helperText('User yang menjadi pemilik utama akun ini.'),
+                        Forms\Components\TextInput::make('max_users')
+                            ->numeric()
+                            ->default(5)
+                            ->label('Kuota User')
+                            ->helperText('Batas maksimal user yang bisa dibuat oleh Tenant ini.'),
                     ])->columns(2),
             ]);
     }
@@ -91,6 +96,9 @@ class TeamResource extends Resource
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                
+                Tables\Columns\TextColumn::make('max_users')
+                    ->label('User Quota'),
             ])
             ->filters([
                 // Filter berdasarkan Plan

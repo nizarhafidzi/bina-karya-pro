@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Project extends Model
 {
@@ -68,4 +69,17 @@ class Project extends Model
     {
         return $this->hasManyThrough(RabItem::class, Wbs::class);
     }
+
+    public function owner(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'owner_id');
+    }
+
+    // Relasi ke Site Managers (Satu Project bisa punya Banyak Site Manager)
+    public function siteManagers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'project_site_managers', 'project_id', 'user_id');
+    }
+
+    
 }

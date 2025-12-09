@@ -16,6 +16,7 @@ use Filament\Tables\Table;
 use App\Services\RabCalculatorService;
 use Filament\Notifications\Notification;
 use Filament\Forms\Components\Actions\Action;
+use Filament\Facades\Filament;
 
 
 class ProjectResource extends Resource
@@ -33,57 +34,82 @@ class ProjectResource extends Resource
                         Forms\Components\TextInput::make('name')
                             ->required()
                             ->label('Nama Proyek'),
+                            
                         Forms\Components\TextInput::make('code')
                             ->required()
                             ->unique(ignoreRecord: true)
                             ->label('Nomor Kontrak/SPK'),
+                            
                         Forms\Components\Select::make('region_id')
                             ->relationship('region', 'name')
                             ->required()
                             ->label('Wilayah Harga (Region)')
                             ->helperText('Menentukan standar harga material yang digunakan.'),
+
+                        // --- TAMBAHAN RELASI USER (PERBAIKAN AMBIGUOUS ID) ---
+                        Forms\Components\Fieldset::make('Tim Proyek')
+                            ->schema([
+                                // 1. Pilih Project Owner
+                                Forms\Components\Select::make('owner_id')
+                                    ->label('Project Owner')
+                                    ->options(function () {
+                                        $team = Filament::getTenant();
+                                        if (!$team) return [];
+
+                                        return $team->members()
+                                            ->whereHas('roles', fn ($q) => $q->where('name', 'Project Owner'))
+                                            // PERBAIKAN DI SINI: Gunakan 'users.name' dan 'users.id'
+                                            ->pluck('users.name', 'users.id');
+                                    })
+                                    ->searchable()
+                                    ->preload()
+                                    ->required()
+                                    ->helperText('Hanya user dengan role "Project Owner" yang muncul.'),
+
+                                // 2. Pilih Site Managers
+                                Forms\Components\Select::make('siteManagers')
+                                    ->label('Site Managers')
+                                    ->relationship('siteManagers', 'name') 
+                                    ->options(function () {
+                                        $team = Filament::getTenant();
+                                        if (!$team) return [];
+
+                                        return $team->members()
+                                            ->whereHas('roles', fn ($q) => $q->where('name', 'Site Manager'))
+                                            // PERBAIKAN DI SINI: Gunakan 'users.name' dan 'users.id'
+                                            ->pluck('users.name', 'users.id');
+                                    })
+                                    ->multiple()
+                                    ->searchable()
+                                    ->preload()
+                                    ->required()
+                                    ->helperText('Hanya user dengan role "Site Manager" yang muncul.'),
+                            ])
+                            ->columns(2),
+                        // -----------------------------
+
                         Forms\Components\DatePicker::make('start_date'),
                         Forms\Components\DatePicker::make('end_date'),
-                        Forms\Components\TextInput::make('contract_value')
-                            ->label('Nilai Kontrak')
-                            ->disabled() // Otomatis terhitung dari RAB
-                            ->numeric()
-                            ->default(0)
-                            ->prefix('Rp')
-                            ->dehydrated(false), // Jangan submit jika disabled, tapi di backend kita update
+                        
+                        // ... sisa input contract_value dll ...
                         Forms\Components\TextInput::make('contract_value')
                             ->label('Nilai Kontrak (Total RAB)')
                             ->numeric()
                             ->default(0)
                             ->prefix('Rp')
-                            
-                            // 1. Agar user tidak bisa edit manual (harus hasil hitungan)
                             ->readOnly() 
-                            
-                            // 2. Agar data tetap tersimpan ke DB meskipun readOnly
                             ->dehydrated() 
-                            
-                            // 3. TOMBOL MANUAL UPDATE (SOLUSI ANDA)
                             ->suffixAction(
-                                Action::make('recalculate')
+                                Forms\Components\Actions\Action::make('recalculate')
                                     ->icon('heroicon-o-arrow-path')
                                     ->color('warning')
                                     ->tooltip('Klik untuk hitung ulang Total RAB terkini')
                                     ->action(function ($record, Forms\Set $set) {
-                                        // Jika record belum tersimpan (proyek baru), tidak bisa hitung
                                         if (!$record) return;
-
-                                        // A. Jalankan Service Kalkulator
-                                        (new RabCalculatorService())->calculateProject($record);
-                                        
-                                        // B. Ambil data terbaru dari DB
+                                        (new \App\Services\RabCalculatorService())->calculateProject($record);
                                         $newValue = $record->fresh()->contract_value;
-
-                                        // C. Update tampilan di Form seketika
                                         $set('contract_value', $newValue);
-
-                                        // D. Beri notifikasi sukses
-                                        Notification::make()
+                                        \Filament\Notifications\Notification::make()
                                             ->title('Nilai Kontrak Diperbarui')
                                             ->body('Total: Rp ' . number_format($newValue, 0, ',', '.'))
                                             ->success()

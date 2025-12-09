@@ -10,10 +10,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Support\Collection;
 use Spatie\Permission\Traits\HasRoles;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
+use App\Traits\HasTenancyScope;
 
 class User extends Authenticatable implements FilamentUser, HasTenants
 {
-    use HasRoles; // Spatie
+    use HasApiTokens, HasFactory, Notifiable, HasRoles;
+
+    protected $guarded = [];
 
     protected $fillable = [
         'name', 'email', 'password',
@@ -22,6 +29,8 @@ class User extends Authenticatable implements FilamentUser, HasTenants
     protected $hidden = [
         'password', 'remember_token',
     ];
+
+    
 
     // --- Filament Tenancy Logic ---
 
@@ -40,18 +49,36 @@ class User extends Authenticatable implements FilamentUser, HasTenants
     // 3. Relasi Eloquent
     public function teams(): BelongsToMany
     {
-        return $this->belongsToMany(Team::class);
+        return $this->belongsToMany(Team::class, 'team_user', 'user_id', 'team_id');
     }
     
-    // --- Access Logic ---
+    // --- LOGIC PENENTU AKSES PANEL (CRITICAL) ---
     public function canAccessPanel(Panel $panel): bool
     {
+        // 1. Panel ADMIN (Super Admin Only)
         if ($panel->getId() === 'admin') {
-            // Hanya Super Admin yg bisa masuk /admin
             return $this->hasRole('Super Admin');
         }
-        
-        // Tenant panel (/app) bisa diakses semua user yang punya team
-        return true; 
+
+        // 2. Panel APP (Tenant Admin Only)
+        if ($panel->getId() === 'app') {
+            // Site Manager & Project Owner DILARANG MASUK SINI
+            // Mereka punya halaman khusus di /project/{id}/dashboard
+            return $this->hasRole(['Super Admin', 'Tenant Admin']);
+        }
+
+        return false;
+    }
+
+    // Relasi User sebagai Owner Project
+    public function ownedProjects(): HasMany
+    {
+        return $this->hasMany(Project::class, 'owner_id');
+    }
+
+    // Relasi User sebagai Site Manager
+    public function managedProjects(): BelongsToMany
+    {
+        return $this->belongsToMany(Project::class, 'project_site_managers', 'user_id', 'project_id');
     }
 }

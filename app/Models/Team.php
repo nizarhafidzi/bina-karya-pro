@@ -13,7 +13,7 @@ class Team extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['name', 'slug', 'owner_id'];
+    protected $fillable = ['name', 'slug', 'owner_id', 'max_users'];
 
     // --- RELASI YANG HILANG (PENYEBAB ERROR) ---
     public function owner(): BelongsTo
@@ -22,9 +22,9 @@ class Team extends Model
     }
 
     // Relasi ke Anggota Tim
-    public function members(): BelongsToMany
+    public function members()
     {
-        return $this->belongsToMany(User::class);
+        return $this->belongsToMany(User::class, 'team_user', 'team_id', 'user_id');
     }
     
     // Relasi ke Subscription
