@@ -4,6 +4,7 @@ namespace App\Filament\App\Resources;
 
 use App\Filament\App\Resources\ProjectResource\Pages;
 use App\Filament\App\Resources\ProjectResource\RelationManagers\RabItemsRelationManager;
+use App\Filament\App\Resources\ProjectResource\Pages\ProjectProgressPage;
 use App\Models\Project;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -99,6 +100,10 @@ class ProjectResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+                Tables\Actions\Action::make('curve')
+                    ->label('Kurva S')
+                    ->icon('heroicon-o-presentation-chart-line')
+                    ->url(fn (Project $record) => ProjectProgressPage::getUrl(['record' => $record])),
             ]);
     }
 
@@ -115,6 +120,7 @@ class ProjectResource extends Resource
             'index' => Pages\ListProjects::route('/'),
             'create' => Pages\CreateProject::route('/create'),
             'edit' => Pages\EditProject::route('/{record}/edit'),
+            'progress' => ProjectProgressPage::route('/{record}/progress'),
         ];
     }
 }
