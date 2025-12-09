@@ -3,104 +3,113 @@
 namespace App\Services;
 
 use App\Models\Project;
-use App\Models\RabItem;
 use App\Models\ProjectSchedule;
 use App\Models\WeeklyRealization;
 
 class CurveCalculatorService
 {
-    /**
-     * Hitung ulang Bobot (%) setiap item terhadap Nilai Kontrak Total.
-     * Wajib dipanggil setiap kali RAB berubah.
-     */
     public function calculateItemWeights(Project $project): void
     {
-        $totalContract = $project->contract_value;
+        $items = $project->rabItems;
+        $totalContract = $items->sum('total_price'); // Hitung dari items langsung biar konsisten
 
         if ($totalContract <= 0) return;
 
-        // Ambil via shortcut relationship (HasManyThrough)
-        $items = $project->rabItems;
+        $currentSumWeight = 0;
+        $count = $items->count();
 
-        foreach ($items as $item) {
-            // Rumus: (Harga Total Item / Nilai Kontrak Proyek) * 100
-            $weight = ($item->total_price / $totalContract) * 100;
-            
+        // Loop semua item
+        foreach ($items as $index => $item) {
+            // Jika ini adalah ITEM TERAKHIR
+            if ($index === $count - 1) {
+                // Bobotnya adalah sisa (100 - total sebelumnya)
+                // Ini memaksa total pasti 100.00
+                $weight = 100 - $currentSumWeight;
+            } else {
+                // Item biasa: hitung normal
+                $weight = ($item->total_price / $totalContract) * 100;
+                // Bulatkan ke 4 desimal biar rapi tapi tetap akurat
+                $weight = round($weight, 4);
+            }
+
+            // Simpan weight ke DB
             $item->update(['weight' => $weight]);
+            
+            // Tambahkan ke akumulator
+            $currentSumWeight += $weight;
         }
+        
+        // Update contract value di project header sekalian
+        $project->update(['contract_value' => $totalContract]);
     }
 
     /**
-     * Menghasilkan Data Array Kurva S (Plan vs Actual) lengkap.
-     * Output format siap pakai untuk Tabel & Chart.
+     * Mengembalikan Data Lengkap untuk Tabel & Chart
      */
     public function getScurveData(Project $project): array
     {
-        // 1. Tentukan Rentang Waktu
-        // Asumsi: Max week diambil dari schedule terakhir atau realization terakhir
-        $maxWeekSchedule = ProjectSchedule::whereHas('rabItem.wbs', fn($q) => $q->where('project_id', $project->id))->max('week') ?? 0;
-        $maxWeekRealization = WeeklyRealization::where('project_id', $project->id)->max('week') ?? 0;
-        $totalWeeks = max($maxWeekSchedule, $maxWeekRealization);
+        // 1. Ambil Data Jadwal (Plan)
+        $schedules = ProjectSchedule::where('project_id', $project->id)
+            ->orderBy('week')
+            ->get();
 
-        if ($totalWeeks == 0) return [];
+        // 2. Ambil Data Realisasi (Actual)
+        $realizations = WeeklyRealization::where('project_id', $project->id)
+            ->where('status', 'submitted') // Atau 'approved', sesuaikan workflow
+            ->orderBy('week')
+            ->get();
 
-        $data = [];
-        $cumulativePlan = 0;
-        $cumulativeActual = 0;
+        // 3. Tentukan Durasi Maksimal (Plan vs Actual)
+        $maxWeekPlan = $schedules->max('week') ?? 0;
+        $maxWeekReal = $realizations->max('week') ?? 0;
+        $maxWeek = max($maxWeekPlan, $maxWeekReal);
 
-        for ($week = 1; $week <= $totalWeeks; $week++) {
+        $tableData = [];
+        $cumPlan = 0;
+        $cumActual = 0;
+
+        // Loop dari Minggu 1 s/d Akhir
+        for ($i = 1; $i <= $maxWeek; $i++) {
+            // --- Hitung Plan ---
+            $sched = $schedules->firstWhere('week', $i);
+            $planWeekly = $sched ? (float) $sched->progress_plan : 0;
+            $cumPlan += $planWeekly;
+
+            // --- Hitung Actual ---
+            // Cek apakah minggu ini sudah ada realisasinya
+            $real = $realizations->firstWhere('week', $i);
             
-            // --- A. CALCULATE PLAN (RENCANA) ---
-            // Ambil semua schedule di minggu ini untuk proyek ini
-            $schedules = ProjectSchedule::where('week', $week)
-                ->whereHas('rabItem.wbs', fn($q) => $q->where('project_id', $project->id))
-                ->with('rabItem')
-                ->get();
+            $actualWeekly = null;
+            $currentActualCum = null;
+            $deviation = null;
 
-            $weeklyPlanWeight = 0;
-            foreach ($schedules as $sched) {
-                // Kontribusi Item ke Progress Proyek = (Bobot Item * Progress Rencana Item) / 100
-                $contribution = ($sched->rabItem->weight * $sched->progress_plan) / 100;
-                $weeklyPlanWeight += $contribution;
+            // Jika minggu ini <= minggu terakhir realisasi, hitung actualnya
+            if ($i <= $maxWeekReal) {
+                // Asumsi: realized_progress di DB adalah progress minggu itu (parsial)
+                // Jika DB nyimpan kumulatif, logic ini perlu disesuaikan.
+                $val = $real ? (float) $real->realized_progress : 0;
+                $cumActual += $val;
+                
+                $actualWeekly = $val;
+                $currentActualCum = $cumActual;
+
+                // Hitung Deviasi (Actual - Plan)
+                $deviation = $currentActualCum - $cumPlan;
             }
 
-            $cumulativePlan += $weeklyPlanWeight;
-
-            // --- B. CALCULATE ACTUAL (REALISASI) ---
-            // Cari realization header untuk minggu ini
-            $realization = WeeklyRealization::where('project_id', $project->id)
-                ->where('week', $week)
-                ->with(['itemRealizations.rabItem'])
-                ->first();
-
-            $weeklyActualWeight = 0;
-            $hasActual = false;
-
-            if ($realization) {
-                $hasActual = true;
-                foreach ($realization->itemRealizations as $itemReal) {
-                    // Logic: Kita hitung progress MINGGU INI saja (Delta)
-                    // Jika data progress_cumulative yg disimpan, kita butuh delta dari minggu lalu.
-                    // TAPI untuk simplifikasi Engine ini, kita asumsikan item_realization menyimpan
-                    // 'progress_this_week' (Progress yg dicapai HANYA di minggu ini).
-                    
-                    $contribution = ($itemReal->rabItem->weight * $itemReal->progress_this_week) / 100;
-                    $weeklyActualWeight += $contribution;
-                }
-                $cumulativeActual += $weeklyActualWeight;
-            }
-
-            // --- C. COMPILE DATA ---
-            $data[] = [
-                'week' => $week,
-                'plan_weekly' => round($weeklyPlanWeight, 2),
-                'plan_cumulative' => round($cumulativePlan, 2),
-                'actual_weekly' => $hasActual ? round($weeklyActualWeight, 2) : null,
-                'actual_cumulative' => $hasActual ? round($cumulativeActual, 2) : null,
-                'deviation' => $hasActual ? round($cumulativeActual - $cumulativePlan, 2) : null,
+            // Masukkan ke array Tabel
+            $tableData[] = [
+                'week' => $i,
+                'plan_weekly' => round($planWeekly, 2),
+                'plan_cumulative' => round($cumPlan, 2),
+                
+                // Jika belum ada realisasi, biarkan null agar di tabel muncul strip (-)
+                'actual_weekly' => $actualWeekly !== null ? round($actualWeekly, 2) : null,
+                'actual_cumulative' => $currentActualCum !== null ? round($currentActualCum, 2) : null,
+                'deviation' => $deviation !== null ? round($deviation, 2) : null,
             ];
         }
 
-        return $data;
+        return $tableData;
     }
 }

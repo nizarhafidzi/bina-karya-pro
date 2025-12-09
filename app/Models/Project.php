@@ -51,6 +51,14 @@ class Project extends Model
         return $this->hasMany(WeeklyRealization::class);
     }
 
+    // --- TAMBAHKAN INI ---
+    public function projectSchedules(): HasMany
+    {
+        // Mengambil semua jadwal milik proyek ini
+        return $this->hasMany(ProjectSchedule::class);
+    }
+    // ---------------------
+
     public function cashFlows(): HasMany
     {
         return $this->hasMany(CashFlow::class);
