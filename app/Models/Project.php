@@ -14,6 +14,15 @@ class Project extends Model
 
     protected $guarded = [];
 
+    // --- PERBAIKAN DI SINI (TYPE CASTING) ---
+    // Ini mengubah string database "2023-01-01" menjadi Carbon Object
+    // agar kita bisa pakai fungsi ->copy(), ->addWeeks(), ->format()
+    protected $casts = [
+        'start_date' => 'date',
+        'end_date' => 'date',
+    ];
+    // ----------------------------------------
+
     // --- RELASI YANG HILANG (FIX UTAMA) ---
     public function region(): BelongsTo
     {

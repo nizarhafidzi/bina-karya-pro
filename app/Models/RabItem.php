@@ -33,4 +33,11 @@ class RabItem extends Model
     {
         return $this->belongsTo(Wbs::class);
     }
+
+    // --- RELASI YANG BARU DITAMBAHKAN (SOLUSI ERROR) ---
+    public function schedules(): HasMany
+    {
+        return $this->hasMany(ProjectSchedule::class);
+    }
+    // --------------------------------------------------
 }

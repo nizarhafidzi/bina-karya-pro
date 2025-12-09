@@ -5,6 +5,8 @@ namespace App\Filament\App\Resources;
 use App\Filament\App\Resources\ProjectResource\Pages;
 use App\Filament\App\Resources\ProjectResource\RelationManagers\RabItemsRelationManager;
 use App\Filament\App\Resources\ProjectResource\Pages\ProjectProgressPage;
+use App\Filament\App\Resources\ProjectResource\Pages\ProjectSchedulePage;
+use App\Filament\App\Resources\ProjectResource\Pages\WeeklyProgressInputPage;
 use App\Models\Project;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -43,13 +45,16 @@ class ProjectResource extends Resource
                         Forms\Components\DatePicker::make('start_date'),
                         Forms\Components\DatePicker::make('end_date'),
                         Forms\Components\TextInput::make('contract_value')
+                            ->label('Nilai Kontrak')
                             ->disabled() // Otomatis terhitung dari RAB
                             ->numeric()
+                            ->default(0)
                             ->prefix('Rp')
                             ->dehydrated(false), // Jangan submit jika disabled, tapi di backend kita update
                         Forms\Components\TextInput::make('contract_value')
                             ->label('Nilai Kontrak (Total RAB)')
                             ->numeric()
+                            ->default(0)
                             ->prefix('Rp')
                             
                             // 1. Agar user tidak bisa edit manual (harus hasil hitungan)
@@ -100,10 +105,27 @@ class ProjectResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\Action::make('curve')
-                    ->label('Kurva S')
-                    ->icon('heroicon-o-presentation-chart-line')
-                    ->url(fn (Project $record) => ProjectProgressPage::getUrl(['record' => $record])),
+                
+                // Group Action untuk Menu Teknis
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\Action::make('schedule')
+                        ->label('Planning Jadwal')
+                        ->icon('heroicon-o-calendar')
+                        ->url(fn (Project $record) => ProjectSchedulePage::getUrl(['record' => $record])),
+                    
+                    Tables\Actions\Action::make('opname')
+                        ->label('Input Progress')
+                        ->icon('heroicon-o-clipboard-document-check')
+                        ->url(fn (Project $record) => WeeklyProgressInputPage::getUrl(['record' => $record])),
+                        
+                    Tables\Actions\Action::make('curve')
+                        ->label('Monitoring Kurva S')
+                        ->icon('heroicon-o-presentation-chart-line')
+                        ->url(fn (Project $record) => ProjectProgressPage::getUrl(['record' => $record])),
+                ])
+                ->label('Menu Teknis')
+                ->icon('heroicon-m-cog')
+                ->color('info'),
             ]);
     }
 
@@ -121,6 +143,8 @@ class ProjectResource extends Resource
             'create' => Pages\CreateProject::route('/create'),
             'edit' => Pages\EditProject::route('/{record}/edit'),
             'progress' => ProjectProgressPage::route('/{record}/progress'),
+            'schedule' => ProjectSchedulePage::route('/{record}/schedule'),
+            'opname'   => WeeklyProgressInputPage::route('/{record}/opname'),
         ];
     }
 }
