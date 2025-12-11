@@ -64,7 +64,7 @@ class User extends Authenticatable implements FilamentUser, HasTenants
         if ($panel->getId() === 'app') {
             // Site Manager & Project Owner DILARANG MASUK SINI
             // Mereka punya halaman khusus di /project/{id}/dashboard
-            return $this->hasRole(['Super Admin', 'Tenant Admin']);
+            return $this->hasRole(['Super Admin', 'Tenant Admin', 'Site Manager', 'Project Owner']);
         }
 
         return false;

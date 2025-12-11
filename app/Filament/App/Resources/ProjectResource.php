@@ -7,6 +7,7 @@ use App\Filament\App\Resources\ProjectResource\RelationManagers\RabItemsRelation
 use App\Filament\App\Resources\ProjectResource\Pages\ProjectProgressPage;
 use App\Filament\App\Resources\ProjectResource\Pages\ProjectSchedulePage;
 use App\Filament\App\Resources\ProjectResource\Pages\WeeklyProgressInputPage;
+use App\Filament\App\Resources\ProjectResource\Pages\CashFlowDashboard;
 use App\Models\Project;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -148,6 +149,11 @@ class ProjectResource extends Resource
                         ->label('Monitoring Kurva S')
                         ->icon('heroicon-o-presentation-chart-line')
                         ->url(fn (Project $record) => ProjectProgressPage::getUrl(['record' => $record])),
+                    
+                    Tables\Actions\Action::make('cashflow')
+                        ->label('Monitoring Arus Kas')
+                        ->icon('heroicon-o-presentation-chart-bar')
+                        ->url(fn (Project $record) => CashFlowDashboard::getUrl(['record' => $record])),
                 ])
                 ->label('Menu Teknis')
                 ->icon('heroicon-m-cog')
@@ -171,6 +177,7 @@ class ProjectResource extends Resource
             'progress' => ProjectProgressPage::route('/{record}/progress'),
             'schedule' => ProjectSchedulePage::route('/{record}/schedule'),
             'opname'   => WeeklyProgressInputPage::route('/{record}/opname'),
+            'cashflow' => CashFlowDashboard::route('/{record}/cash-flow'),
         ];
     }
 }

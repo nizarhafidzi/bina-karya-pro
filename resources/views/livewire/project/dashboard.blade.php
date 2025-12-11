@@ -1,5 +1,5 @@
 <div class="space-y-6">
-    
+
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
             <h1 class="text-2xl font-bold text-gray-900">{{ $project->name }}</h1>
@@ -30,6 +30,8 @@
             </div>
         @endif
     </div>
+
+    @livewire('project.owner-financial-stats', ['project' => $project])
 
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">

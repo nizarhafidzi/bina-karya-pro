@@ -2,6 +2,10 @@
 
 namespace App\Providers\Filament;
 
+use App\Http\Middleware\BlockOwnerFromPanel;
+use App\Http\Middleware\CheckSubscriptionStatus;
+use App\Http\Responses\LoginResponse;
+use Filament\Http\Responses\Auth\Contracts\LoginResponse as LoginResponseContract;
 use App\Models\Team;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -18,11 +22,21 @@ use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\AuthenticateSession;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
-// Import Middleware Kita
-use App\Http\Middleware\CheckSubscriptionStatus; 
 
 class AppPanelProvider extends PanelProvider
 {
+    /**
+     * Kita melakukan binding interface LoginResponse di sini, 
+     * bukan di dalam konfigurasi panel().
+     */
+    public function register(): void
+    {
+        parent::register();
+        
+        // Bind Custom Login Response
+        $this->app->bind(LoginResponseContract::class, LoginResponse::class);
+    }
+
     public function panel(Panel $panel): Panel
     {
         return $panel
@@ -40,6 +54,11 @@ class AppPanelProvider extends PanelProvider
             ->pages([
                 Pages\Dashboard::class,
             ])
+            ->discoverWidgets(in: app_path('Filament/App/Widgets'), for: 'App\\Filament\\App\\Widgets')
+            ->widgets([
+                Widgets\AccountWidget::class,
+                Widgets\FilamentInfoWidget::class,
+            ])
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
@@ -53,9 +72,9 @@ class AppPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
+                // Middleware Blokir Owner tetap ada di sini
+                BlockOwnerFromPanel::class, 
             ])
-            // --- PERBAIKAN DI SINI ---
-            // Pindahkan CheckSubscriptionStatus ke tenantMiddleware
             ->tenantMiddleware([
                 CheckSubscriptionStatus::class,
             ], isPersistent: true);
