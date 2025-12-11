@@ -81,5 +81,10 @@ class Project extends Model
         return $this->belongsToMany(User::class, 'project_site_managers', 'project_id', 'user_id');
     }
 
+    public function termins(): HasMany
+    {
+        return $this->hasMany(ProjectTermin::class);
+    }
+
     
 }

@@ -33,6 +33,10 @@
 
     @livewire('project.owner-financial-stats', ['project' => $project])
 
+    <div class="mt-8">
+        @livewire('project.termin-list', ['project' => $project])
+    </div>
+
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
             <p class="text-xs text-gray-500 uppercase font-semibold">Nilai Kontrak</p>

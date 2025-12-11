@@ -167,7 +167,7 @@ class CashFlowService
         // 2. Progress Fisik Terakhir (%)
         $lastProgress = WeeklyRealization::where('project_id', $project->id)
             ->orderByDesc('week')
-            ->value('realized_progress') ?? 0;
+            ->sum('realized_progress') ?? 0;
 
         // 3. Nilai Wajar (Seharusnya dibayar berdasarkan progress fisik)
         // Rumus: Contract Value * % Progress
