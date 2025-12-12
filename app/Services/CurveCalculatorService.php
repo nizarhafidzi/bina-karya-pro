@@ -3,63 +3,87 @@
 namespace App\Services;
 
 use App\Models\Project;
+use App\Models\RabItem;
 use App\Models\ProjectSchedule;
 use App\Models\WeeklyRealization;
+use Illuminate\Support\Facades\DB;
 
 class CurveCalculatorService
 {
+    /**
+     * Hitung ulang Bobot setiap item RAB agar totalnya PAS 100%.
+     * Langkah:
+     * 1. Hitung Total Real dari item-item RAB.
+     * 2. Update Nilai Kontrak Project (agar sinkron).
+     * 3. Bagi proporsi bobot.
+     * 4. Normalisasi selisih koma (Force 100%).
+     */
     public function calculateItemWeights(Project $project): void
     {
-        $items = $project->rabItems;
-        $totalContract = $items->sum('total_price'); // Hitung dari items langsung biar konsisten
+        // 1. Ambil semua item RAB milik proyek ini
+        $items = RabItem::whereHas('wbs', fn($q) => $q->where('project_id', $project->id))->get();
 
-        if ($totalContract <= 0) return;
+        if ($items->isEmpty()) return;
 
-        $currentSumWeight = 0;
-        $count = $items->count();
+        // 2. Hitung Total Real (Sum Total Price Items)
+        // Kita tidak percaya 'contract_value' di tabel project, kita hitung ulang dari rincian.
+        $realTotal = $items->sum('total_price');
 
-        // Loop semua item
-        foreach ($items as $index => $item) {
-            // Jika ini adalah ITEM TERAKHIR
-            if ($index === $count - 1) {
-                // Bobotnya adalah sisa (100 - total sebelumnya)
-                // Ini memaksa total pasti 100.00
-                $weight = 100 - $currentSumWeight;
-            } else {
-                // Item biasa: hitung normal
-                $weight = ($item->total_price / $totalContract) * 100;
-                // Bulatkan ke 4 desimal biar rapi tapi tetap akurat
-                $weight = round($weight, 4);
-            }
+        if ($realTotal <= 0) return;
 
-            // Simpan weight ke DB
-            $item->update(['weight' => $weight]);
+        // 3. Update Contract Value di Proyek agar sinkron
+        $project->update(['contract_value' => $realTotal]);
+
+        // 4. Hitung Bobot Mentah
+        // Kita simpan ID dan Bobot sementara di array untuk dinormalisasi
+        $tempWeights = [];
+        $totalWeight = 0;
+
+        foreach ($items as $item) {
+            // Rumus: (Harga Item / Total Proyek) * 100
+            $weight = ($item->total_price / $realTotal) * 100;
             
-            // Tambahkan ke akumulator
-            $currentSumWeight += $weight;
+            // Simpan sementara (tanpa round dulu biar presisi)
+            $tempWeights[$item->id] = $weight;
+            $totalWeight += $weight;
         }
+
+        // 5. Normalisasi & Rounding (Sapu Jagat Bobot)
+        // Agar total bobot di database DIJAMIN 100.00
         
-        // Update contract value di project header sekalian
-        $project->update(['contract_value' => $totalContract]);
+        $finalWeights = [];
+        foreach ($tempWeights as $id => $w) {
+            $finalWeights[$id] = round($w, 2); // Bulatkan 2 desimal untuk DB
+        }
+
+        // Cek selisih
+        $diff = 100.00 - array_sum($finalWeights);
+
+        // Tempel selisih ke item dengan harga TERBESAR (biar dampaknya paling minim)
+        // atau item terakhir
+        if (abs($diff) > 0.00001 && count($finalWeights) > 0) {
+            // Kita cari item terakhir saja untuk simplifikasi
+            $lastId = array_key_last($finalWeights);
+            $finalWeights[$lastId] += $diff;
+        }
+
+        // 6. Simpan Bobot Final ke Database
+        foreach ($finalWeights as $itemId => $weight) {
+            RabItem::where('id', $itemId)->update(['weight' => $weight]);
+        }
     }
 
-    /**
-     * Mengembalikan Data Lengkap untuk Tabel & Chart
-     */
     public function getScurveData(Project $project): array
     {
-        // 1. Ambil Data Jadwal (Plan)
-        $schedules = ProjectSchedule::where('project_id', $project->id)
-            ->orderBy('week')
-            ->get();
-
-        // 2. Ambil Data Realisasi (Actual)
+        // ... (Bagian ini SAMA SEPERTI SEBELUMNYA, tidak perlu diubah) ...
+        
+        $schedules = ProjectSchedule::where('project_id', $project->id)->with('rabItem')->get();
+        
         $realizations = WeeklyRealization::where('project_id', $project->id)
-            ->where('status', 'submitted') // Atau 'approved', sesuaikan workflow
+            ->where('status', 'submitted')
             ->orderBy('week')
             ->get();
 
-        // 3. Tentukan Durasi Maksimal (Plan vs Actual)
         $maxWeekPlan = $schedules->max('week') ?? 0;
         $maxWeekReal = $realizations->max('week') ?? 0;
         $maxWeek = max($maxWeekPlan, $maxWeekReal);
@@ -68,42 +92,37 @@ class CurveCalculatorService
         $cumPlan = 0;
         $cumActual = 0;
 
-        // Loop dari Minggu 1 s/d Akhir
         for ($i = 1; $i <= $maxWeek; $i++) {
-            // --- Hitung Plan ---
-            $sched = $schedules->firstWhere('week', $i);
-            $planWeekly = $sched ? (float) $sched->progress_plan : 0;
+            // A. Plan
+            $weeklySchedules = $schedules->where('week', $i);
+            $planWeekly = 0;
+            
+            foreach ($weeklySchedules as $sched) {
+                if (!$sched->rabItem) continue;
+                $weight = (float) $sched->rabItem->weight;
+                $physical = (float) $sched->progress_plan;
+                $planWeekly += ($physical * $weight) / 100;
+            }
             $cumPlan += $planWeekly;
 
-            // --- Hitung Actual ---
-            // Cek apakah minggu ini sudah ada realisasinya
+            // B. Actual
             $real = $realizations->firstWhere('week', $i);
-            
             $actualWeekly = null;
             $currentActualCum = null;
             $deviation = null;
 
-            // Jika minggu ini <= minggu terakhir realisasi, hitung actualnya
             if ($i <= $maxWeekReal) {
-                // Asumsi: realized_progress di DB adalah progress minggu itu (parsial)
-                // Jika DB nyimpan kumulatif, logic ini perlu disesuaikan.
                 $val = $real ? (float) $real->realized_progress : 0;
                 $cumActual += $val;
-                
                 $actualWeekly = $val;
                 $currentActualCum = $cumActual;
-
-                // Hitung Deviasi (Actual - Plan)
                 $deviation = $currentActualCum - $cumPlan;
             }
 
-            // Masukkan ke array Tabel
             $tableData[] = [
                 'week' => $i,
                 'plan_weekly' => round($planWeekly, 2),
                 'plan_cumulative' => round($cumPlan, 2),
-                
-                // Jika belum ada realisasi, biarkan null agar di tabel muncul strip (-)
                 'actual_weekly' => $actualWeekly !== null ? round($actualWeekly, 2) : null,
                 'actual_cumulative' => $currentActualCum !== null ? round($currentActualCum, 2) : null,
                 'deviation' => $deviation !== null ? round($deviation, 2) : null,

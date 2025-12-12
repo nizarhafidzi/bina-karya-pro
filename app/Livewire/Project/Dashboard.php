@@ -12,7 +12,6 @@ class Dashboard extends Component
     public $chartData = [];
     public $summary = [];
 
-    // Tentukan Layout Khusus
     public function render()
     {
         return view('livewire.project.dashboard')
@@ -29,45 +28,62 @@ class Dashboard extends Component
     {
         $service = new CurveCalculatorService();
         
-        // 1. Pastikan data ter-update
+        // 1. Pastikan Bobot Item Terupdate (PENTING)
         $service->calculateItemWeights($this->project);
         
-        // 2. Ambil Raw Data (Format Tabel)
+        // 2. Ambil Data Kurva S yang SUDAH BENAR (Plan Weekly x Bobot)
         $rawData = $service->getScurveData($this->project);
 
-        // 3. Transform Data untuk ApexCharts (Format Series)
-        // Kita butuh array terpisah untuk Plan dan Actual
+        // 3. Transform Data untuk Chart
         $planSeries = [];
         $actualSeries = [];
         $weeks = [];
 
         $lastActual = 0;
         $lastDeviation = 0;
+        
+        // Cek apakah ada data actual sama sekali
+        $hasActualData = false;
 
         foreach ($rawData as $row) {
             $weeks[] = 'Mg ' . $row['week'];
-            $planSeries[] = $row['plan_cumulative'];
             
-            // Actual hanya diisi jika tidak null (agar grafik tidak turun ke 0 di masa depan)
+            // Format angka agar tidak terlalu banyak desimal di JSON
+            $planSeries[] = round($row['plan_cumulative'], 2);
+            
+            // Logic Actual:
+            // Jika null, jangan dimasukkan ke array agar grafik putus (tidak turun ke 0)
+            // Kecuali minggu pertama (untuk titik awal)
             if ($row['actual_cumulative'] !== null) {
-                $actualSeries[] = $row['actual_cumulative'];
-                $lastActual = $row['actual_cumulative'];
-                $lastDeviation = $row['deviation'];
+                $val = round($row['actual_cumulative'], 2);
+                $actualSeries[] = $val;
+                
+                // Update tracker terakhir
+                $lastActual = $val;
+                $lastDeviation = $row['deviation'] !== null ? round($row['deviation'], 2) : 0;
+                $hasActualData = true;
+            } else {
+                // Jika null, push null agar ApexCharts mengerti (Line break)
+                // Atau stop push jika ingin garis berhenti
+                $actualSeries[] = null; 
             }
         }
 
+        // Clean up trailing nulls di actualSeries agar grafik terlihat berhenti di progress terakhir
+        // (Opsional, tergantung selera visual)
+        
         $this->chartData = [
             'weeks' => $weeks,
             'plan' => $planSeries,
             'actual' => $actualSeries
         ];
 
-        // 4. Siapkan Summary Cards
+        // 4. Summary Cards
         $this->summary = [
             'contract_value' => $this->project->contract_value,
             'current_progress' => $lastActual,
             'deviation' => $lastDeviation,
-            'status' => $this->project->status,
+            'status' => $this->project->status, // draft, ongoing, etc
             'duration_weeks' => count($rawData)
         ];
     }

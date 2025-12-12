@@ -9,6 +9,7 @@ use App\Filament\App\Resources\ProjectResource\Pages\ProjectSchedulePage;
 use App\Filament\App\Resources\ProjectResource\Pages\WeeklyProgressInputPage;
 use App\Filament\App\Resources\ProjectResource\Pages\CashFlowDashboard;
 use App\Filament\App\Resources\ProjectResource\Pages\ManageProjectTermins;
+use App\filament\App\Resources\ProjectResource\Pages\ManageResourcePlan;
 use App\Models\Project;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -160,6 +161,10 @@ class ProjectResource extends Resource
                         ->label('Manajemen Termin')
                         ->icon('heroicon-o-document-currency-dollar')
                         ->url(fn (Project $record) => ManageProjectTermins::getUrl(['record' => $record])),
+                    Tables\Actions\Action::make('resource_plan')
+                        ->label('Rencana Belanja')
+                        ->icon('heroicon-o-shopping-cart')
+                        ->url(fn (Project $record) => ManageResourcePlan::getUrl(['record' => $record])),
                 ])
                 ->label('Menu Teknis')
                 ->icon('heroicon-m-cog')
@@ -185,6 +190,7 @@ class ProjectResource extends Resource
             'opname'   => WeeklyProgressInputPage::route('/{record}/opname'),
             'cashflow' => CashFlowDashboard::route('/{record}/cash-flow'),
             'termins'  => ManageProjectTermins::route('/{record}/termins'),
+            'resource_plan' => ManageResourcePlan::route('/{record}/resource'),
         ];
     }
 }

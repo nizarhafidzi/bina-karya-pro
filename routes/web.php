@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Livewire\Project\Dashboard;
 use App\Livewire\Project\DailyReportInput;
 use App\Livewire\Project\WeeklyProgress;
+use App\Livewire\Project\DailyLogInput;
 
 /*
 |--------------------------------------------------------------------------
@@ -39,8 +40,8 @@ Route::middleware([
 
     // 2. Daily Report Input (Manager Only)
     // Policy check dilakukan di dalam Component mount()
-    Route::get('/{project}/daily-report', DailyReportInput::class)
-        ->name('daily-report');
+    Route::get('/project/{project}/daily-report', DailyLogInput::class)
+    ->name('daily-input');
 
     // 3. Weekly Progress Input (Manager Only)
     // Policy check dilakukan di dalam Component mount()

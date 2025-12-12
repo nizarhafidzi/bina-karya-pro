@@ -20,9 +20,7 @@ class ProjectSchedulePage extends Page
     protected static ?string $title = 'Perencanaan Jadwal (Time Schedule)';
 
     public array $scheduleInputs = [];
-    
-    // Toggle untuk menampilkan detail per minggu (Default False agar UI Bersih)
-    public bool $showDetails = false; 
+    public bool $showDetails = false;
 
     public function mount(int | string $record): void
     {
@@ -39,12 +37,13 @@ class ProjectSchedulePage extends Page
             $end = $item->end_week ?? 1;
             
             $weeklyData = [];
+            
             if ($item->schedules->count() > 0) {
                 foreach ($item->schedules->sortBy('week') as $sched) {
+                    // Ambil Progress Fisik Item (0-100%)
                     $weeklyData[] = (float) $sched->progress_plan;
                 }
             } else {
-                // Jika data kosong, trigger logic auto-divide
                 $weeklyData = $this->calculateLinearDistribution($start, $end);
             }
 
@@ -59,7 +58,6 @@ class ProjectSchedulePage extends Page
         }
     }
 
-    // Helper: Hitung Pembagian Rata
     private function calculateLinearDistribution($start, $end)
     {
         $duration = $end - $start + 1;
@@ -68,7 +66,7 @@ class ProjectSchedulePage extends Page
         $perWeek = 100 / $duration;
         $distribution = array_fill(0, $duration, round($perWeek, 2));
         
-        // Fix selisih koma di elemen terakhir agar pas 100
+        // Fix rounding agar total pas 100
         $sum = array_sum($distribution);
         if ($sum != 100) {
             $distribution[count($distribution) - 1] += (100 - $sum);
@@ -77,9 +75,9 @@ class ProjectSchedulePage extends Page
         return $distribution;
     }
 
-    // Listener: Saat User ganti Start/End -> Otomatis Bagi Rata
     public function updatedScheduleInputs($value, $key)
     {
+        // Logic auto-calculate saat user ganti tanggal
         $parts = explode('.', $key); 
         if (count($parts) < 3) return;
         
@@ -91,23 +89,25 @@ class ProjectSchedulePage extends Page
             $start = (int)($data['start_week'] ?? 1);
             $end = (int)($data['end_week'] ?? 1);
 
-            if ($end < $start) { // Auto fix rentang terbalik
+            if ($end < $start) { 
                 $end = $start;
                 $this->scheduleInputs[$itemId]['end_week'] = $start;
             }
 
-            // AUTO DIVIDE: Langsung update distribusi
             $newDist = $this->calculateLinearDistribution($start, $end);
             $this->scheduleInputs[$itemId]['weekly_distribution'] = $newDist;
             $this->scheduleInputs[$itemId]['total_check'] = 100;
         }
         
-        // Update total check jika edit manual
         if ($field === 'weekly_distribution') {
              $this->scheduleInputs[$itemId]['total_check'] = array_sum($this->scheduleInputs[$itemId]['weekly_distribution']);
         }
     }
 
+    /**
+     * CORE LOGIC: Menyimpan Detail Per Item
+     * Inilah yang memperbaiki error "Resource Plan Not Found".
+     */
     public function saveSchedule(): void
     {
         DB::beginTransaction();
@@ -115,97 +115,100 @@ class ProjectSchedulePage extends Page
             $service = new CurveCalculatorService();
             $service->calculateItemWeights($this->record);
 
-            $globalWeeklyProgress = [];
-            $maxWeek = 0;
+            $insertData = [];
+            $totalProjectProgress = 0;
 
             foreach ($this->scheduleInputs as $itemId => $data) {
-                // ... (Bagian pengambilan data ini TETAP SAMA) ...
                 $start = (int)$data['start_week'];
                 $end = (int)$data['end_week'];
-                $itemWeight = (float) ($data['weight'] ?? 0); 
+                // Ambil array progress mingguan dari input
                 $percentages = $data['weekly_distribution'] ?? [];
-                
-                // Safety check duration
-                $duration = $end - $start + 1;
-                if ($duration > 0 && count($percentages) !== $duration) {
-                    $percentages = $this->calculateLinearDistribution($start, $end);
+
+                // 1. NORMALISASI: Jika total user ngawur (misal 120%), kecilkan jadi skala 100%
+                $rawTotal = array_sum($percentages);
+                if ($rawTotal > 0 && abs($rawTotal - 100) > 0.1) {
+                    $percentages = array_map(fn($v) => ($v / $rawTotal) * 100, $percentages);
                 }
 
-                if ($end > $maxWeek) $maxWeek = $end;
+                // --- LOGIC PAKSA 100% (THE FIX) ---
+                
+                // Langkah A: Bulatkan semua ke 2 desimal dulu
+                $percentages = array_map(fn($v) => round($v, 2), $percentages);
 
-                // Update RAB Item
+                // Langkah B: Hitung total setelah pembulatan
+                $currentSum = array_sum($percentages);
+
+                // Langkah C: Hitung selisih (Bisa positif 0.04 atau negatif -0.01)
+                $diff = 100.00 - $currentSum;
+
+                // Langkah D: Tempelkan selisih ke minggu TERAKHIR yang ada nilainya
+                // Agar totalnya pas jadi 100.00
+                if (abs($diff) > 0.00001 && count($percentages) > 0) {
+                    // Cari index terakhir
+                    $lastIndex = array_key_last($percentages);
+                    
+                    // Tambahkan diff (bisa menambah atau mengurangi)
+                    $percentages[$lastIndex] += $diff;
+                    
+                    // Safety: Pastikan tidak jadi minus karena koreksi (jarang terjadi tapi mungkin)
+                    if ($percentages[$lastIndex] < 0) {
+                        // Jika minus, ambil dari minggu sebelumnya (mundur)
+                        $percentages[$lastIndex] = 0;
+                        $prevIndex = $lastIndex - 1;
+                        if (isset($percentages[$prevIndex])) {
+                            $percentages[$prevIndex] += $diff; // Bebankan ke minggu sebelumnya
+                        }
+                    }
+                }
+                // ------------------------------------
+
+                // Update RAB Item Master
                 $rabItem = RabItem::find($itemId);
                 if ($rabItem) {
                     $rabItem->update(['start_week' => $start, 'end_week' => $end]);
-                }
-
-                // Hitung Kontribusi (Masih presisi tinggi/float)
-                foreach ($percentages as $index => $percentPlan) {
-                    $currentWeek = $start + $index;
-                    $contribution = $itemWeight * ($percentPlan / 100);
-
-                    if (!isset($globalWeeklyProgress[$currentWeek])) {
-                        $globalWeeklyProgress[$currentWeek] = 0;
-                    }
-                    $globalWeeklyProgress[$currentWeek] += $contribution;
-                }
-            }
-
-            // --- PERBAIKAN LOGIC PEMBULATAN (SOLUSI 99.79%) ---
-            
-            // 1. Paksa setiap minggu jadi 2 desimal DULU (sesuai kemampuan Database)
-            // Ini mencegah 'hilang koma' saat proses penyimpanan nanti
-            for ($i = 1; $i <= $maxWeek; $i++) {
-                if (isset($globalWeeklyProgress[$i])) {
-                    $globalWeeklyProgress[$i] = round($globalWeeklyProgress[$i], 2);
+                    $itemWeight = (float) $rabItem->weight;
                 } else {
-                    $globalWeeklyProgress[$i] = 0;
+                    continue; 
+                }
+
+                // Masukkan ke Array Insert
+                foreach ($percentages as $index => $percentPlan) {
+                    if ($percentPlan <= 0) continue;
+
+                    $currentWeek = $start + $index;
+                    
+                    // Hitung kontribusi untuk notifikasi (validasi visual)
+                    $contribution = $itemWeight * ($percentPlan / 100);
+                    $totalProjectProgress += $contribution;
+
+                    $insertData[] = [
+                        'project_id'    => $this->record->id,
+                        'team_id'       => $this->record->team_id,
+                        'rab_item_id'   => $itemId, 
+                        'week'          => $currentWeek,
+                        // Simpan angka yang sudah dipaksa pas 100
+                        'progress_plan' => $percentPlan, 
+                        'created_at'    => now(),
+                        'updated_at'    => now(),
+                    ];
                 }
             }
 
-            // 2. Hitung Total setelah pembulatan
-            $currentTotal = array_sum($globalWeeklyProgress);
-
-            // 3. Teknik Sapu Jagat (Fixing Remainder)
-            // Cek selisihnya dengan 100
-            $diff = 100 - $currentTotal;
-
-            // Jika selisihnya kecil (error pembulatan wajar), tempel ke minggu terakhir
-            if ($maxWeek > 0 && abs($diff) < 1) {
-                $globalWeeklyProgress[$maxWeek] += $diff;
-            }
-            // ---------------------------------------------------
-
-            // Hapus Jadwal Lama
+            // Hapus & Simpan Ulang
             ProjectSchedule::where('project_id', $this->record->id)->delete();
-
-            // Simpan Jadwal Baru
-            $insertData = [];
-            for ($i = 1; $i <= $maxWeek; $i++) {
-                $progress = $globalWeeklyProgress[$i];
-                
-                $insertData[] = [
-                    'project_id'    => $this->record->id,
-                    'team_id'       => $this->record->team_id,
-                    'rab_item_id'   => null,
-                    'week'          => $i,
-                    // Sekarang aman untuk disimpan 2 desimal karena sudah kita atur di atas
-                    'progress_plan' => $progress, 
-                    'created_at'    => now(),
-                    'updated_at'    => now(),
-                ];
-            }
-
-            if (count($insertData) > 0) {
-                ProjectSchedule::insert($insertData);
+            
+            foreach (array_chunk($insertData, 500) as $chunk) {
+                ProjectSchedule::insert($chunk);
             }
 
             DB::commit();
             
-            // Notifikasi menampilkan total real yang akan dilihat user
+            // Cek Total Akhir untuk User
+            $totalFormatted = number_format($totalProjectProgress, 2);
+            
             Notification::make()
                 ->title('Jadwal Berhasil Disimpan')
-                ->body("Kurva S terbentuk (Total: " . array_sum($globalWeeklyProgress) . "%)")
+                ->body("Sistem otomatis mengoreksi selisih koma. Total Bobot: {$totalFormatted}%")
                 ->success()
                 ->send();
 
@@ -213,7 +216,7 @@ class ProjectSchedulePage extends Page
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Notification::make()->title('Gagal Menyimpan')->body($e->getMessage())->danger()->send();
+            Notification::make()->title('Gagal')->body($e->getMessage())->danger()->send();
         }
     }
 }

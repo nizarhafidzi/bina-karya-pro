@@ -61,16 +61,22 @@
                 </tbody>
 
                 @if(count($curveData) > 0)
-                <tfoot class="text-xs text-gray-700 uppercase bg-gray-100 dark:bg-gray-700 dark:text-gray-200 font-bold">
-                    <tr>
-                        <td class="px-6 py-4">SUB TOTAL</td>
+                <tfoot>
+                    <tr class="bg-gray-50 font-bold border-t border-gray-200">
+                        <td class="px-4 py-2">TOTAL</td>
                         
-                        <td class="px-6 py-4 text-right">
-                            {{ number_format(collect($curveData)->sum('plan_weekly'), 2) }}%
+                        <td class="px-4 py-2 text-right">
+                            @php
+                                // Ambil data minggu terakhir
+                                $lastWeekData = end($curveData); 
+                                // Plan Total = Plan Kumulatif minggu terakhir
+                                $grandTotalPlan = $lastWeekData ? $lastWeekData['plan_cumulative'] : 0;
+                            @endphp
+                            {{ number_format($grandTotalPlan, 2) }}%
                         </td>
-                        
-                        <td class="px-6 py-4 text-right">
-                            100.00%
+
+                        <td class="px-4 py-2 text-right">
+                            {{ number_format($grandTotalPlan, 2) }}%
                         </td>
 
                         <td class="px-6 py-4 text-right text-green-700">
