@@ -11,6 +11,12 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use App\Filament\App\Resources\ResourceResource\RelationManagers\ResourcePricesRelationManager;
+use App\Imports\ResorcesSheetImport;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\MasterLibraryTemplateExport;
+use Filament\Tables\Actions\Action;
+use Filament\Forms\Components\FileUpload;
+
 
 class ResourceResource extends Resource
 {
@@ -55,7 +61,7 @@ class ResourceResource extends Resource
                 Tables\Columns\TextColumn::make('unit'),
                 Tables\Columns\TextColumn::make('default_price')->money('IDR'),
                 
-                // Indikator apakah ini data Global atau Custom
+                // Indikator Global vs Custom
                 Tables\Columns\TextColumn::make('team_id')
                     ->label('Source')
                     ->formatStateUsing(fn ($state) => $state ? 'Custom' : 'Global SNI')
@@ -77,12 +83,49 @@ class ResourceResource extends Resource
                     }),
             ])
             ->actions([
-                // Kita sembunyikan tombol Edit/Delete jika data itu Global (team_id null)
+                // Sembunyikan Edit/Delete jika data Global
                 Tables\Actions\EditAction::make()
                     ->hidden(fn (ResourceModel $record) => $record->team_id === null),
                 Tables\Actions\DeleteAction::make()
                     ->hidden(fn (ResourceModel $record) => $record->team_id === null),
-            ]);
+            ])
+            // --- POSISI HEADER ACTIONS DI SINI (SETELAH ACTIONS) ---
+            ->headerActions([
+            // 1. Download Template Lengkap (2 Sheet)
+            Tables\Actions\Action::make('template')
+                ->label('Template Library')
+                ->icon('heroicon-o-arrow-down-tray')
+                ->color('gray')
+                ->action(fn() => Excel::download(new MasterLibraryTemplateExport, 'template_library.xlsx')),
+
+            // 2. Import Library (Resource + AHS)
+            Tables\Actions\Action::make('import')
+                ->label('Import Library')
+                ->icon('heroicon-o-arrow-up-tray')
+                ->color('success')
+                ->form([
+                    \Filament\Forms\Components\FileUpload::make('file')
+                        ->label('File Excel Library')
+                        ->required(),
+                ])
+                ->action(function (array $data) {
+                    try {
+                        Excel::import(new MasterLibraryImport, $data['file']);
+                        \Filament\Notifications\Notification::make()
+                            ->title('Import Sukses')
+                            ->body('Resources dan AHS berhasil diimport.')
+                            ->success()->send();
+                    } catch (\Exception $e) {
+                        \Filament\Notifications\Notification::make()
+                            ->title('Gagal')
+                            ->body($e->getMessage())
+                            ->danger()->send();
+                    }
+                }),
+            
+            Tables\Actions\CreateAction::make(),
+        ]);
+            // -------------------------------------------------------
     }
 
     public static function getPages(): array

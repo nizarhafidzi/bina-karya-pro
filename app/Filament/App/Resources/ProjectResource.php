@@ -10,10 +10,14 @@ use App\Filament\App\Resources\ProjectResource\Pages\WeeklyProgressInputPage;
 use App\Filament\App\Resources\ProjectResource\Pages\CashFlowDashboard;
 use App\Filament\App\Resources\ProjectResource\Pages\ManageProjectTermins;
 use App\filament\App\Resources\ProjectResource\Pages\ManageResourcePlan;
+use App\Filament\App\Resources\ProjectResource\Pages\ProjectDetail;
+use App\Filament\App\Resources\ProjectResource\Pages\ManageRabItems;
+use Filament\Pages\SubNavigationPosition;
+use Filament\Resources\Resource;
+use Filament\Resources\Pages\Page;
 use App\Models\Project;
 use Filament\Forms;
 use Filament\Forms\Form;
-use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use App\Services\RabCalculatorService;
@@ -133,50 +137,21 @@ class ProjectResource extends Resource
                 Tables\Columns\TextColumn::make('start_date')->date(),
             ])
             ->actions([
-                Tables\Actions\EditAction::make(),
+                // ACTION UTAMA: Masuk ke Dashboard Proyek
+                Tables\Actions\Action::make('open')
+                    ->label('Buka Proyek')
+                    ->icon('heroicon-o-arrow-right-circle')
+                    ->color('primary')
+                    ->button()
+                    ->url(fn (Project $record) => Pages\ProjectDetail::getUrl(['record' => $record])),
                 
-                // Group Action untuk Menu Teknis
-                Tables\Actions\ActionGroup::make([
-                    Tables\Actions\Action::make('schedule')
-                        ->label('Planning Jadwal')
-                        ->icon('heroicon-o-calendar')
-                        ->url(fn (Project $record) => ProjectSchedulePage::getUrl(['record' => $record])),
-                    
-                    Tables\Actions\Action::make('opname')
-                        ->label('Input Progress')
-                        ->icon('heroicon-o-clipboard-document-check')
-                        ->url(fn (Project $record) => WeeklyProgressInputPage::getUrl(['record' => $record])),
-                        
-                    Tables\Actions\Action::make('curve')
-                        ->label('Monitoring Kurva S')
-                        ->icon('heroicon-o-presentation-chart-line')
-                        ->url(fn (Project $record) => ProjectProgressPage::getUrl(['record' => $record])),
-                    
-                    Tables\Actions\Action::make('cashflow')
-                        ->label('Monitoring Arus Kas')
-                        ->icon('heroicon-o-presentation-chart-bar')
-                        ->url(fn (Project $record) => CashFlowDashboard::getUrl(['record' => $record])),
-
-                    Tables\Actions\Action::make('termins')
-                        ->label('Manajemen Termin')
-                        ->icon('heroicon-o-document-currency-dollar')
-                        ->url(fn (Project $record) => ManageProjectTermins::getUrl(['record' => $record])),
-                    Tables\Actions\Action::make('resource_plan')
-                        ->label('Rencana Belanja')
-                        ->icon('heroicon-o-shopping-cart')
-                        ->url(fn (Project $record) => ManageResourcePlan::getUrl(['record' => $record])),
-                ])
-                ->label('Menu Teknis')
-                ->icon('heroicon-m-cog')
-                ->color('info'),
+                Tables\Actions\EditAction::make()->iconButton(),
             ]);
     }
 
     public static function getRelations(): array
     {
-        return [
-            RabItemsRelationManager::class,
-        ];
+        return [];
     }
 
     public static function getPages(): array
@@ -185,6 +160,8 @@ class ProjectResource extends Resource
             'index' => Pages\ListProjects::route('/'),
             'create' => Pages\CreateProject::route('/create'),
             'edit' => Pages\EditProject::route('/{record}/edit'),
+            'view' => ProjectDetail::route('/{record}'), // Landing Page Proyek
+            'rab' => ManageRabItems::route('/{record}/rab'), // Halaman RAB Full Screen
             'progress' => ProjectProgressPage::route('/{record}/progress'),
             'schedule' => ProjectSchedulePage::route('/{record}/schedule'),
             'opname'   => WeeklyProgressInputPage::route('/{record}/opname'),

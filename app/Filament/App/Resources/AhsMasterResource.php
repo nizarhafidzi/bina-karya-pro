@@ -12,6 +12,10 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Filament\Facades\Filament;
+use App\Exports\MasterLibraryTemplateExport;
+use App\Imports\MasterLibraryImport;
+use Maatwebsite\Excel\Facades\Excel;
+use Filament\Forms\Components\FileUpload;
 
 class AhsMasterResource extends Resource
 {
@@ -91,9 +95,42 @@ class AhsMasterResource extends Resource
                 Tables\Actions\DeleteAction::make()
                     ->hidden(fn (AhsMaster $record) => $record->team_id === null),
             ])
-            ->bulkActions([
-                // Proteksi bulk delete juga
-            ]);
+            // --- POSISI HEADER ACTIONS DI SINI (SETELAH ACTIONS) ---
+            ->headerActions([
+            // 1. Download Template Lengkap (2 Sheet)
+            Tables\Actions\Action::make('template')
+                ->label('Template Library')
+                ->icon('heroicon-o-arrow-down-tray')
+                ->color('gray')
+                ->action(fn() => Excel::download(new MasterLibraryTemplateExport, 'template_library.xlsx')),
+
+            // 2. Import Library (Resource + AHS)
+            Tables\Actions\Action::make('import')
+                ->label('Import Library')
+                ->icon('heroicon-o-arrow-up-tray')
+                ->color('success')
+                ->form([
+                    \Filament\Forms\Components\FileUpload::make('file')
+                        ->label('File Excel Library')
+                        ->required(),
+                ])
+                ->action(function (array $data) {
+                    try {
+                        Excel::import(new MasterLibraryImport, $data['file']);
+                        \Filament\Notifications\Notification::make()
+                            ->title('Import Sukses')
+                            ->body('Resources dan AHS berhasil diimport.')
+                            ->success()->send();
+                    } catch (\Exception $e) {
+                        \Filament\Notifications\Notification::make()
+                            ->title('Gagal')
+                            ->body($e->getMessage())
+                            ->danger()->send();
+                    }
+                }),
+            
+            Tables\Actions\CreateAction::make(),
+        ]);
     }
 
     public static function getRelations(): array
